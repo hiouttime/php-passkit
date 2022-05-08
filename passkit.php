@@ -22,14 +22,17 @@ class passKit{
 
     public function setCert($path){ // 设置签名证书路径
         $this->certPath = $path;
+        return true;
     }
 
     public function setWWDR($path){ // 设置WWDR证书路径
         $this->wwdrPath = $path;
+        return true;
     }
 
     public function setPassword($password){ // 设置证书密码
         $this->certPassword = $password;
+        return true;
     }
 
     /*
@@ -37,7 +40,7 @@ class passKit{
     */
     public function outputPass(){
         if(is_array($this->passkit))
-            return false;
+            $this->exportPass();
         header('Content-Type: application/vnd.apple.pkpass');
         header('Content-Disposition: attachment; filename="pass.pkpass"');
         header('Content-Transfer-Encoding: binary');
@@ -51,7 +54,7 @@ class passKit{
     */
     public function exportPass(){
         $mainfest = [];
-        $this->getTempDir();
+        $this->setTempDir();
         $this->passkit = json_encode($this->passkit,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
         foreach(scandir($this->passDir) as $file)
             if(is_file($this->passDir.$file) && $file != "pass.json")
@@ -65,8 +68,9 @@ class passKit{
                 $zip->addFile($this->passDir.$file,$file);
         $zip->addFile($this->tempPath."manifest.json","manifest.json");
         $zip->addFile($this->tempPath."signature","signature");
-        $zip-close();
-        $this->passkit = file_get_contents($this->tempPath."pass.pkpass")
+        $zip->addFromString("pass.json",$this->passkit);
+        $zip->close();
+        $this->passkit = file_get_contents($this->tempPath."pass.pkpass");
         return $this->passkit;
     }
 
@@ -77,13 +81,12 @@ class passKit{
         $certs = [];
         file_put_contents($this->tempPath."manifest.json",json_encode($mainfest,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
         try{
-            openssl_pkcs12_read(file_get_contents($this->certPath), $certs, $this->$certPassword);
+            openssl_pkcs12_read(file_get_contents($this->certPath), $certs, $this->certPassword);
             $openssl_args = [
                 $this->tempPath."manifest.json",
                 $this->tempPath."signature",
                 openssl_x509_read($certs['cert']),
-                openssl_pkey_get_private($certs['pkey'], $this->$certPassword),
-                [],
+                openssl_pkey_get_private($certs['pkey'], $this->certPassword),
                 PKCS7_BINARY | PKCS7_DETACHED,
                 $this->wwdrPath
             ];
