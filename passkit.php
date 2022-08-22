@@ -5,6 +5,7 @@ class passKit{
     protected $certPassword = "";// 签名证书密码
     protected $passDir;// 卡包模板路径
     protected $tempPath;// 可读可写的临时文件目录
+    protected $extendFiles;// 额外添加到压缩包的文件二进制数组
     public $passkit = [];
 
     /*
@@ -15,6 +16,7 @@ class passKit{
             $this->passDir = realpath($dir) . "/";
             $passfile = file_get_contents($this->passDir . "pass.json");
             $this->passkit = json_decode($passfile,true);
+            $this->extendFiles = [];
         }catch(Exception $e){
             return $e->getMessage();
         }
@@ -55,14 +57,19 @@ class passKit{
     public function exportPass(){
         $mainfest = [];
         $this->setTempDir();
+        $zip = new \ZipArchive;
+        $zip->open($this->tempPath."pass.pkpass", \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
         $this->passkit = json_encode($this->passkit,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
         foreach(scandir($this->passDir) as $file)
             if(is_file($this->passDir.$file) && $file != "pass.json")
                 $mainfest[$file] = sha1_file($this->passDir.$file);
+        if(count($this->extendFiles))// 如果有更改额外文件，则依次添加
+            foreach($this->extendFiles as $name => $data){
+                $zip->addFromString($name,$data);
+                $mainfest[$name] = sha1($data);
+            }
         $mainfest["pass.json"] = sha1($this->passkit);
         $this->signPass($mainfest);
-        $zip = new \ZipArchive;
-        $zip->open($this->tempPath."pass.pkpass", \ZipArchive::CREATE | \ZipArchive::OVERWRITE);
         foreach(scandir($this->passDir) as $file)
             if(is_file($this->passDir.$file) && $file != "pass.json")
                 $zip->addFile($this->passDir.$file,$file);
@@ -87,6 +94,7 @@ class passKit{
                 $this->tempPath."signature",
                 openssl_x509_read($certs['cert']),
                 openssl_pkey_get_private($certs['pkey'], $this->certPassword),
+                [],
                 PKCS7_BINARY | PKCS7_DETACHED,
                 $this->wwdrPath
             ];
@@ -111,7 +119,7 @@ class passKit{
     * 提供一个可用的临时目录
     */
     private function setTempDir(){
-        $dir = sys_get_temp_dir() . '/passkit/';
+        $dir = sys_get_temp_dir() . '/passkit-'.time() . '/';
         if(!is_dir($dir))
             mkdir($dir,0777);
         $this->tempPath = $dir;
